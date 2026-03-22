@@ -1,59 +1,43 @@
-import os
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
+import telebot
 import google.generativeai as genai
-from flask import Flask
-from threading import Thread
 
-# إعداد السجلات
-logging.basicConfig(level=logging.INFO)
+# الإعدادات - التوكن والـ API اللي بعتهم
+BOT_TOKEN = "8592872662:AAF5lGHEL9OPTMqI94AfM7aiR1W0rpbi5Js"
+GEMINI_API_KEY = "AIzaSyCtXs0rC8Vyk27F_WKLXYlF6EV1TiBqUdg"
 
-# إعداد Gemini API Key من متغير البيئة
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+# إعداد الذكاء الاصطناعي
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
+bot = telebot.TeleBot(BOT_TOKEN)
 
-generation_config = {
-    "temperature": 0.7,
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 1024,
-}
+# قاموس لحفظ جلسات الدردشة (الذاكرة)
+chat_sessions = {}
 
-model = genai.GenerativeModel(
-    model_name="gemini-1.5-flash",
-    generation_config=generation_config,
-    system_instruction="أنت مساعد ذكي خارق تتحدث اللغة العربية فقط بأسلوب فصيح وواضح. ردودك سريعة ومختصرة وذكية جداً. ممنوع استخدام أي لغة أخرى غير العربية."
-)
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.reply_to(message, "مرحباً بك! أنا بوتك الذكي الخارق، أتحدث العربية وجاهز لخدمتك فوراً. ماذا تريد أن تسأل؟")
 
-# سيرفر Flask
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Bot is Online"
-@app.route('/api/alive')
-def alive(): return "OK"
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-# معالجة الرسائل
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
+@bot.message_handler(func=lambda message: True)
+def echo_all(message):
+    user_id = message.chat.id
+    
+    # إنشاء جلسة جديدة لو المستخدم أول مرة يكلم البوت
+    if user_id not in chat_sessions:
+        chat_sessions[user_id] = model.start_chat(history=[])
+    
     try:
-        response = model.generate_content(user_text)
-        await update.message.reply_text(response.text)
+        # إرسال رسالة "جاري التفكير..." عشان المستخدم يعرف إن البوت شغال
+        sent_msg = bot.reply_to(message, "⏳ جارٍ التفكير...")
+        
+        # الحصول على الرد من Gemini
+        response = chat_sessions[user_id].send_message(message.text)
+        
+        # تعديل رسالة التفكير بالرد النهائي
+        bot.edit_message_text(chat_id=user_id, message_id=sent_msg.message_id, text=response.text)
+        
     except Exception as e:
-        logging.error(f"Error: {e}")
-        await update.message.reply_text("عذراً، حدث خطأ بسيط. أعد المحاولة.")
+        print(f"Error: {e}")
+        bot.reply_to(message, "عذراً، حدث خطأ بسيط. أعد المحاولة.")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("مرحباً بك! أنا بوتك الذكي الخارق، أتحدث العربية فقط وجاهز لخدمتك فوراً. ماذا تريد أن تسأل؟")
-
-if __name__ == '__main__':
-    Thread(target=run_flask, daemon=True).start()
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not token:
-        raise RuntimeError("يرجى ضبط متغير TELEGAM_BOT_TOKEN في البيئة.")
-    application = ApplicationBuilder().token(token).build()
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    print("البوت انطلق الآن..")
-    application.run_polling()
+print("🚀 البوت انطلق الآن...")
+bot.infinity_polling()
