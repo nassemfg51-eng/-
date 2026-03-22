@@ -1,43 +1,50 @@
 import telebot
 import google.generativeai as genai
+from flask import Flask
+from threading import Thread
+import os
 
-# الإعدادات - التوكن والـ API اللي بعتهم
+# 1. الإعدادات الخاصة بك (تم التحديث بالمفتاح الجديد)
 BOT_TOKEN = "8592872662:AAF5lGHEL9OPTMqI94AfM7aiR1W0rpbi5Js"
-GEMINI_API_KEY = "AIzaSyCtXs0rC8Vyk27F_WKLXYlF6EV1TiBqUdg"
+GEMINI_API_KEY = "AIzaSyCzC7UAQFXdW8tLq04gdus_xHqqTrWRHtg"
 
-# إعداد الذكاء الاصطناعي
+# 2. تشغيل سيرفر بسيط (عشان الاستضافة المجانية متقفلش البوت)
+app = Flask('')
+@app.route('/')
+def home():
+    return "البوت شغال بأعلى كفاءة 🚀"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+# 3. إعداد الذكاء الاصطناعي (Gemini)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# قاموس لحفظ جلسات الدردشة (الذاكرة)
-chat_sessions = {}
-
-@bot.message_handler(commands=['start', 'help'])
-def send_welcome(message):
-    bot.reply_to(message, "مرحباً بك! أنا بوتك الذكي الخارق، أتحدث العربية وجاهز لخدمتك فوراً. ماذا تريد أن تسأل؟")
-
+# 4. معالجة الرسائل
 @bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    user_id = message.chat.id
-    
-    # إنشاء جلسة جديدة لو المستخدم أول مرة يكلم البوت
-    if user_id not in chat_sessions:
-        chat_sessions[user_id] = model.start_chat(history=[])
-    
+def handle_message(message):
     try:
-        # إرسال رسالة "جاري التفكير..." عشان المستخدم يعرف إن البوت شغال
-        sent_msg = bot.reply_to(message, "⏳ جارٍ التفكير...")
+        # إرسال حالة "جاري الكتابة" في تلجرام
+        bot.send_chat_action(message.chat.id, 'typing')
         
-        # الحصول على الرد من Gemini
-        response = chat_sessions[user_id].send_message(message.text)
+        # طلب الرد من الذكاء الاصطناعي
+        response = model.generate_content(message.text)
         
-        # تعديل رسالة التفكير بالرد النهائي
-        bot.edit_message_text(chat_id=user_id, message_id=sent_msg.message_id, text=response.text)
-        
+        # الرد على المستخدم
+        bot.reply_to(message, response.text)
     except Exception as e:
         print(f"Error: {e}")
-        bot.reply_to(message, "عذراً، حدث خطأ بسيط. أعد المحاولة.")
+        bot.reply_to(message, "يا بطل، حصل ضغط بسيط.. جرب تبعت رسالتك تاني.")
 
-print("🚀 البوت انطلق الآن...")
-bot.infinity_polling()
+# 5. انطلاق البوت
+def start_bot():
+    print("🚀 البوت انطلق الآن...")
+    bot.infinity_polling()
+
+if __name__ == "__main__":
+    # تشغيل السيرفر والبوت مع بعض في نفس الوقت
+    t = Thread(target=run)
+    t.start()
+    start_bot()
